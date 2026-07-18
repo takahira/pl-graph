@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3CradialGradient id='b' cx='38%25' cy='32%25' r='72%25'%3E%3Cstop offset='0' stop-color='%23eaf7ff'/%3E%3Cstop offset='.28' stop-color='%238fddff'/%3E%3Cstop offset='.75' stop-color='%232ea6f0'/%3E%3Cstop offset='1' stop-color='%230b4a78'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='15' fill='url(%23b)'/%3E%3C/svg%3E">
+<link rel="icon" type="image/png" sizes="64x64" href="assets/favicon.png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<title>Programming Language Influence Graph</title>
+<meta name="description" content="Interactive 3D time-helix visualization of how 349 programming languages influenced one another, built from English Wikipedia data.">
+<meta name="theme-color" content="#070b14">
+<meta name="color-scheme" content="dark">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Programming Language Influence Graph">
+<meta property="og:description" content="349 languages spiral up a rotating time helix — click any language to trace its lineage. Built from Wikipedia's influenced / influenced-by data.">
+<meta property="og:url" content="https://takahira.github.io/pl-graph/">
+<meta property="og:image" content="https://takahira.github.io/pl-graph/assets/screenshot.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+  :root {
+    --bg: #070b14;
+    --text: #dfe6f2;
+    --text-dim: #7d879c;
+    --panel: rgba(13, 19, 33, 0.92);
+    --panel-border: rgba(125, 145, 190, 0.18);
+    --accent-up: #ffb454;
+    --accent-down: #54d8ff;
+    color-scheme: dark;
+  }
+  /* Display font for the title (sci-fi look; bundled locally to stay offline-capable) */
+  @font-face {
+    font-family: 'Orbitron';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url('fonts/orbitron-700.woff2') format('woff2');
+  }
+  /* General UI font (pairs well with Orbitron; Japanese text falls back to system fonts) */
+  @font-face {
+    font-family: 'Space Grotesk';
+    font-style: normal;
+    font-weight: 300 700;
+    font-display: swap;
+    src: url('fonts/space-grotesk.woff2') format('woff2');
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  /* Form controls don't inherit font-family (UA default is Arial) — align them with the body font */
+  button, input, select, textarea { font-family: inherit; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+  canvas { display: block; touch-action: none; cursor: grab; }
+  canvas.dragging { cursor: grabbing; }
+
+  header {
+    position: fixed; top: 0; left: 0; right: 0;
+    padding: 18px 22px 30px;
+    background: linear-gradient(to bottom, rgba(7,11,20,0.95) 45%, transparent);
+    pointer-events: none; z-index: 5;
+    display: flex; align-items: center; gap: 13px; flex-wrap: wrap;
+  }
+  header h1 {
+    font-family: 'Orbitron', ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: clamp(0.95rem, 2.3vw, 1.5rem);
+    font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; line-height: 1.15;
+    background: linear-gradient(92deg, #eaf7ff 0%, #7fdcff 45%, #54d8ff 72%, #3f9bff 100%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+    filter: drop-shadow(0 0 14px rgba(84, 216, 255, 0.35));
+  }
+
+  #search-wrap { position: fixed; top: 16px; right: 16px; z-index: 8; pointer-events: auto; width: min(240px, 46vw); }
+  #search {
+    width: 100%; padding: 7px 12px; font-family: 'Orbitron', ui-monospace, monospace;
+    font-size: 0.78rem; letter-spacing: 0.1em; color: var(--text);
+    background: var(--panel); border: 2px solid rgba(125, 145, 190, 0.45); border-radius: 8px; outline: none;
+  }
+  #search:focus { border-color: rgba(125, 165, 255, 0.7); }
+  #search:focus-visible { outline: 2px solid rgba(125, 165, 255, 0.7); outline-offset: 2px; }
+  #search-results { margin-top: 4px; background: var(--panel); border: 1px solid var(--panel-border); border-radius: 8px; overflow: hidden; display: none; }
+  #search-results div { padding: 7px 12px; font-size: 0.82rem; cursor: pointer; }
+  #search-results div:hover, #search-results div.active { background: rgba(125, 165, 255, 0.15); }
+  #search-results span { color: var(--text-dim); font-size: 0.72rem; margin-left: 6px; }
+
+  #dock {
+    position: fixed; left: 14px; bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 6;
+    display: flex; flex-direction: column; gap: 10px; align-items: flex-start;
+  }
+  #controls { display: flex; gap: 8px; }
+  #controls button::after {
+    content: attr(data-tip);
+    position: absolute; bottom: calc(100% + 8px); left: 0; white-space: nowrap;
+    padding: 5px 9px; border-radius: 6px; background: var(--panel);
+    border: 1px solid var(--panel-border); color: var(--text);
+    font-family: 'Space Grotesk', -apple-system, sans-serif; font-size: 0.72rem; letter-spacing: 0.02em;
+    opacity: 0; pointer-events: none; transition: opacity 0.14s;
+  }
+  #controls button:hover::after, #controls button:focus-visible::after { opacity: 1; }
+  #legend {
+    display: flex; flex-wrap: wrap; gap: 6px; max-width: min(430px, calc(100vw - 28px));
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-family: 'Orbitron', ui-monospace, monospace; letter-spacing: 0.1em;
+    padding: 6px 12px; font-size: 0.9rem; font-weight: 600; color: #eef3fb;
+    border-radius: 999px;
+    background: rgba(13, 19, 33, 0.97); border: 1px solid rgba(150, 170, 215, 0.35);
+    cursor: pointer; user-select: none; transition: opacity 0.15s, border-color 0.15s;
+  }
+  .chip[aria-pressed="false"] { opacity: 0.55; }
+  .chip i { width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 6px currentColor; }
+  .chip:focus-visible { outline: 2px solid rgba(125, 165, 255, 0.7); outline-offset: 1px; }
+
+  #card {
+    position: fixed; top: 70px; right: 16px; z-index: 7;
+    width: min(350px, calc(100vw - 32px));
+    max-height: calc(100vh - 160px);
+    background: var(--panel); border: 1px solid var(--panel-border); border-radius: 12px;
+    backdrop-filter: blur(8px);
+    display: none; flex-direction: column;
+  }
+  #card.open { display: flex; }
+  #card-head { padding: 14px 16px 10px; border-bottom: 1px solid var(--panel-border); }
+  #card-title { font-family: 'Orbitron', ui-monospace, monospace; font-size: 1.22rem; font-weight: 700; letter-spacing: 0.1em; padding-right: 40px; overflow-wrap: anywhere; }
+  #card-meta { margin-top: 6px; font-size: 0.89rem; color: var(--text-dim); display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  #card-meta i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+  #card-designer { flex-basis: 100%; }
+  #card-body { overflow-y: auto; padding: 10px 16px 12px; }
+  #card h3 { font-size: 0.84rem; font-weight: 600; letter-spacing: 0.08em; margin: 10px 0 5px; }
+  #card h3.up { color: var(--accent-up); }
+  #card h3.down { color: var(--accent-down); }
+  .lang-row {
+    display: flex; justify-content: space-between; gap: 8px;
+    width: calc(100% + 16px); background: none; border: none; text-align: left;
+    font: inherit; color: inherit;
+    padding: 5px 8px; margin: 0 -8px; font-size: 1rem;
+    border-radius: 6px; cursor: pointer;
+  }
+  .lang-row:hover { background: rgba(125, 165, 255, 0.12); }
+  .lang-row:focus-visible { outline: 2px solid rgba(125, 165, 255, 0.7); outline-offset: -1px; background: rgba(125, 165, 255, 0.12); }
+  .lang-row span { color: var(--text-dim); font-size: 0.89rem; flex-shrink: 0; }
+  #card-none { color: var(--text-dim); font-size: 0.94rem; padding: 2px 0; }
+  #card-foot { padding: 9px 16px 12px; border-top: 1px solid var(--panel-border); display: flex; gap: 12px; align-items: center; }
+  #card-foot a { color: var(--accent-down); font-size: 0.91rem; text-decoration: none; }
+  #card-foot a:hover { text-decoration: underline; }
+  #btn-close {
+    position: absolute; top: 10px; right: 10px;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: rgba(125, 145, 190, 0.12); border: none; color: var(--text-dim);
+    font-size: 0.9rem; line-height: 1; cursor: pointer;
+  }
+  #btn-close:hover { color: var(--text); background: rgba(125, 145, 190, 0.25); }
+
+  #tooltip {
+    position: fixed; z-index: 9; pointer-events: none; display: none;
+    background: var(--panel); border: 1px solid var(--panel-border); border-radius: 6px;
+    padding: 5px 9px; font-size: 0.76rem;
+    max-width: 216px; overflow-wrap: anywhere;
+  }
+  #tooltip span { color: var(--text-dim); margin-left: 6px; }
+
+  /* Dock buttons (incl. the "?" help button) */
+  #controls button {
+    position: relative; flex: none;
+    width: 32px; height: 32px; border-radius: 9px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Orbitron', ui-monospace, monospace;
+    font-size: 0.9rem; font-weight: 700; cursor: pointer; color: #bfeaff;
+    background: radial-gradient(circle at 50% 34%, rgba(84, 216, 255, 0.20), rgba(13, 19, 33, 0.92));
+    border: 2px solid rgba(84, 216, 255, 0.55);
+    box-shadow: 0 0 12px rgba(84, 216, 255, 0.25), inset 0 0 8px rgba(84, 216, 255, 0.12);
+    backdrop-filter: blur(6px);
+    transition: box-shadow 0.18s, border-color 0.18s, color 0.18s, transform 0.18s;
+  }
+  #controls button:hover {
+    color: #eaf7ff; border-color: rgba(84, 216, 255, 0.9);
+    box-shadow: 0 0 20px rgba(84, 216, 255, 0.5), inset 0 0 10px rgba(84, 216, 255, 0.22);
+    transform: scale(1.08);
+  }
+  #controls button:focus-visible { outline: 2px solid rgba(84, 216, 255, 0.85); outline-offset: 3px; }
+  #btn-flip.flipped {
+    color: #ffd9a8; border-color: rgba(255, 180, 84, 0.6);
+    background: radial-gradient(circle at 50% 34%, rgba(255, 180, 84, 0.18), rgba(13, 19, 33, 0.92));
+    box-shadow: 0 0 12px rgba(255, 180, 84, 0.25), inset 0 0 8px rgba(255, 180, 84, 0.12);
+  }
+  #controls button.off {
+    color: var(--text-dim); border-color: rgba(125, 145, 190, 0.28);
+    background: rgba(13, 19, 33, 0.9); box-shadow: none;
+  }
+
+  /* Help modal */
+  #help-overlay {
+    position: fixed; inset: 0; z-index: 20;
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+    background: rgba(4, 7, 14, 0.72); backdrop-filter: blur(3px);
+  }
+  #help-overlay[hidden] { display: none; }
+  #help-panel {
+    position: relative; width: min(430px, 100%);
+    max-height: calc(100vh - 40px); overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 16px; padding: 22px 22px 18px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  }
+  #help-title { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.02em; margin-bottom: 14px; }
+  #help-list { list-style: none; display: flex; flex-direction: column; gap: 9px; }
+  #help-list li { display: flex; gap: 12px; align-items: baseline; font-size: 0.85rem; }
+  #help-list .k { flex: 0 0 43%; color: var(--accent-down); font-weight: 600; font-size: 0.78rem; }
+  #help-list .d { flex: 1; color: var(--text); }
+  #help-foot {
+    margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--panel-border);
+    font-size: 0.74rem; color: var(--text-dim); line-height: 1.6;
+  }
+  #help-close {
+    position: absolute; top: 12px; right: 12px;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: rgba(125, 145, 190, 0.12); border: none; color: var(--text-dim);
+    font-size: 0.95rem; line-height: 1; cursor: pointer;
+  }
+  #help-close:hover { color: var(--text); background: rgba(125, 145, 190, 0.25); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+
+  @media (max-width: 640px) {
+    header { padding: 12px 165px 20px 14px; }   /* keep space for the search box on the right */
+    #search-wrap { top: 12px; right: 12px; width: 145px; }
+    #search { padding: 6px 10px; font-size: 0.8rem; }
+    #card { top: auto; bottom: 0; left: 0; right: 0; width: 100%; max-height: 46vh; border-radius: 14px 14px 0 0; padding-bottom: env(safe-area-inset-bottom); }
+    #dock { left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); }
+    #legend { gap: 4px; max-width: none; }
+    .chip { padding: 5px 10px; font-size: 0.9rem; }
+  }
+</style>
+</head>
+<body>
+<canvas id="cv" role="img" aria-label="Interactive 3D time helix of programming-language influence">Your browser does not support the canvas element.</canvas>
+
+<header>
+  <h1>Programming Language Influence Graph</h1>
+</header>
+
+<div id="search-wrap">
+  <input id="search" type="search" placeholder="Search a language…" autocomplete="off" aria-label="Search a language" role="combobox" aria-autocomplete="list" aria-controls="search-results" aria-expanded="false">
+  <div id="search-results" role="listbox"></div>
+</div>
+
+<div id="dock">
+  <div id="controls">
+    <button id="btn-flip" data-tip="Flip time axis (oldest ⇄ newest)" aria-label="Flip time direction" aria-pressed="false">⇅</button>
+    <button id="btn-rotate" data-tip="Auto-rotation on / off" aria-label="Toggle auto-rotation" aria-pressed="true">⟳</button>
+    <button id="btn-drift" data-tip="Time drift on / off" aria-label="Toggle time drift" aria-pressed="true">⇊</button>
+    <button id="btn-focus" data-tip="Center view on click on / off" aria-label="Toggle centering on click" aria-pressed="true">◎</button>
+    <button id="btn-help" data-tip="How to use" aria-label="Show help">?</button>
+  </div>
+  <div id="legend" role="group" aria-label="Paradigm legend"></div>
+</div>
+
+<aside id="card" aria-live="polite">
+  <button id="btn-close" aria-label="Close">✕</button>
+  <div id="card-head">
+    <div id="card-title"></div>
+    <div id="card-meta"></div>
+  </div>
+  <div id="card-body"></div>
+  <div id="card-foot">
+    <a id="card-wiki" href="#" target="_blank" rel="noopener noreferrer">Wikipedia ↗</a>
+  </div>
+</aside>
+
+<div id="tooltip"></div>
+
+<div id="help-overlay" role="dialog" aria-modal="true" aria-labelledby="help-title" hidden>
+  <div id="help-panel">
+    <button id="help-close" aria-label="Close">✕</button>
+    <h2 id="help-title">How to use</h2>
+    <ul id="help-list">
+      <li><span class="k">Drag / one finger</span><span class="d">Rotate (horizontal) &amp; tilt (vertical)</span></li>
+      <li><span class="k">Two-finger scroll</span><span class="d">Pan (up/down, left/right)</span></li>
+      <li><span class="k">Mouse wheel / pinch</span><span class="d">Zoom</span></li>
+      <li><span class="k">Click a node</span><span class="d">Select &amp; trace lineage (parents = amber, children = cyan)</span></li>
+      <li><span class="k">Search (top right)</span><span class="d">Jump to a language</span></li>
+      <li><span class="k">Legend chips (bottom)</span><span class="d">Filter by paradigm (⌘/Shift to toggle individually)</span></li>
+      <li><span class="k">Controls (above legend)</span><span class="d">Flip time axis · auto-rotate · time drift · center-on-click</span></li>
+      <li><span class="k">Esc</span><span class="d">Close selection &amp; restore the previous view</span></li>
+    </ul>
+    <p id="help-foot">Height = year · color = paradigm · lines = influence. When left idle, the view slowly drifts down the timeline and loops back to the start.<br>Data: Wikipedia (CC BY-SA 4.0)</p>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script>
+(() => {
+  'use strict';
+  const G = window.GRAPH;
+  if (!G || !Array.isArray(G.nodes) || !Array.isArray(G.edges)) {   // data.js failed to load or is malformed
+    const err = document.createElement('div');
+    err.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;color:#dfe6f2;font-size:1rem;z-index:30';
+    err.textContent = 'Failed to load graph data (data.js). Please reload the page.';
+    document.body.appendChild(err);
+    return;
+  }
+  const N = G.nodes.length;
+  const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const TAU = 2 * Math.PI;
+
+  // ---- Paradigm colors ----
+  const COLORS = ['#ff7d5e', '#5ec8ff', '#ffc94d', '#b98cff', '#4dffc3', '#ff5ea8', '#9ad06a'];
+  const GRAY = '#8a93a6';
+  const colorOf = (g) => (g >= 0 ? COLORS[g] : GRAY);
+
+  // ---- Glow sphere sprites (pre-rendered per color) ----
+  const mix = (srcHex, other, t) => {
+    const a = parseInt(srcHex.slice(1), 16), b = parseInt(other.slice(1), 16);
+    const ch = (sh) => Math.round(((a >> sh) & 255) + (((b >> sh) & 255) - ((a >> sh) & 255)) * t);
+    return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
+  };
+  const SPRITES = new Map();
+  function sprite(color) {
+    let c = SPRITES.get(color);
+    if (c) return c;
+    const S = 64;
+    c = document.createElement('canvas');
+    c.width = c.height = S;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(S * 0.38, S * 0.32, S * 0.05, S * 0.5, S * 0.5, S * 0.52);
+    grad.addColorStop(0, mix(color, '#ffffff', 0.85));
+    grad.addColorStop(0.3, mix(color, '#ffffff', 0.25));
+    grad.addColorStop(0.75, color);
+    grad.addColorStop(1, mix(color, '#000000', 0.5));
+    g.fillStyle = grad;
+    g.beginPath(); g.arc(S / 2, S / 2, S / 2, 0, TAU); g.fill();
+    SPRITES.set(color, c);
+    return c;
+  }
+
+  // ---- Adjacency lists ----
+  const inc = Array.from({ length: N }, () => []);
+  const out = Array.from({ length: N }, () => []);
+  for (const [s, t] of G.edges) { out[s].push(t); inc[t].push(s); }
+
+  // ---- Time-helix layout (the core of this viewer: languages spiral up by year) ----
+  const HH = 1250, RAD = 300, TURNS = 5;
+  let dirY = 1;   // 1 = oldest on top, -1 = newest on top
+  const yrsSorted = G.nodes.map((n) => n.a).filter((v) => v != null).sort((a, b) => a - b);
+  const yMin = yrsSorted[0], yMax = yrsSorted[yrsSorted.length - 1], yMed = yrsSorted[yrsSorted.length >> 1];
+  const yearOf = (n) => (n.a == null ? yMed : n.a);
+  const hash = (i, s) => { const v = Math.sin((i + 1) * 12.9898 + s * 78.233) * 43758.5453; return v - Math.floor(v); };
+  const M = new Float32Array(N * 3);      // model-space coordinates
+  const tOf = new Float32Array(N);        // 0..1 (oldest..newest), drives the appear animation
+  for (let i = 0; i < N; i++) {
+    const n = G.nodes[i];
+    const t = (yearOf(n) - yMin) / ((yMax - yMin) || 1);
+    tOf[i] = t;
+    const jitter = (n.g >= 0 ? (n.g / 7 - 0.5) : (hash(i, 3) - 0.5)) * 0.55 + (hash(i, 4) - 0.5) * 0.35;
+    const ang = t * TURNS * TAU + jitter;
+    const rad = RAD * (0.9 + 0.14 * hash(i, 1)) + Math.sqrt(n.c || 1) * 2.4;
+    M[i * 3] = Math.cos(ang) * rad;
+    M[i * 3 + 1] = dirY * (t - 0.5) * HH;
+    M[i * 3 + 2] = Math.sin(ang) * rad;
+  }
+
+  // ---- Canvas ----
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  let W = 0, Ht = 0, dpr = 1;
+  function resize() {
+    dpr = Math.min(devicePixelRatio || 1, 2);
+    W = innerWidth; Ht = innerHeight;
+    cv.width = W * dpr; cv.height = Ht * dpr;
+    cv.style.width = W + 'px'; cv.style.height = Ht + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  addEventListener('resize', resize); resize();
+
+  // ---- Camera state ----
+  const FOV = 1650;
+  let yaw = 0.6, pitch = 0.2, zoom = 1.25, panX = 0, panY = 0;   // start slightly zoomed in
+  let tYaw = yaw, tPitch = pitch, tZoom = zoom, tPanX = 0, tPanY = 0;
+  let driftY = 0;   // idle vertical drift along the time axis (one-way descent, loops at the end)
+  let spinOn = !REDUCED;
+  let driftOn = !REDUCED;
+  let focusOn = true;   // whether clicking a node re-centers the view on it
+  let savedCam = null;  // camera before selection (restored on deselect)
+  let sel = -1, hover = -1;
+  let ancSet = null, descSet = null, dirSet = null;
+  const activeBuckets = new Set([-1, 0, 1, 2, 3, 4, 5, 6]);
+
+  const S = new Float32Array(N * 3);      // projected sx, sy, persp
+  const order = Array.from({ length: N }, (_, i) => i);
+  const EDGE_BUCKETS = Array.from({ length: 6 }, () => []);
+
+  function fitScale() { return Math.min(W / (RAD * 2.9), Ht / (HH * 1.05)); }
+
+  function project() {
+    const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+    const b = fitScale() * zoom, cx = W / 2, midY = Ht / 2;
+    for (let i = 0; i < N; i++) {
+      const X = M[i * 3], Y = M[i * 3 + 1], Z = M[i * 3 + 2];
+      const rx = X * cy - Z * sy, rz = X * sy + Z * cy;
+      const ry = Y * cp - rz * sp, rz2 = Y * sp + rz * cp;
+      const persp = FOV / Math.max(FOV * 0.1, FOV + rz2 * b);   // near-clip: keep the projection denominator positive
+      S[i * 3] = cx + rx * b * persp + panX;
+      S[i * 3 + 1] = midY + ry * b * persp + panY + driftY;
+      S[i * 3 + 2] = persp;
+    }
+  }
+  // project the on-axis point (0, h, 0) — used by the year grid
+  function projY(h) {
+    const cp = Math.cos(pitch), sp = Math.sin(pitch), b = fitScale() * zoom;
+    const ry = h * cp, rz2 = h * sp, persp = FOV / Math.max(FOV * 0.1, FOV + rz2 * b);
+    return [Ht / 2 + ry * b * persp + panY + driftY, persp];
+  }
+
+  const nodeScale = () => Math.max(0.55, Math.min(1.2, fitScale() / 0.32));
+  const radiusOf = (i) => (1.7 + Math.sqrt(G.nodes[i].c) * 1.05) * nodeScale();
+  const zoomR = () => (zoom <= 1 ? zoom : Math.min(1 + (zoom - 1) * 0.7, 3.2));
+  const visible = (i) => activeBuckets.has(G.nodes[i].g);
+
+  // ---- Appear animation (oldest nodes light up first) ----
+  let t0 = performance.now();   // let: restarted once when the first-visit help modal closes
+  const APPEAR_MS = REDUCED ? 0 : 3200;
+  let now = t0;
+  const appearOf = (i) => {
+    if (APPEAR_MS === 0) return 1;
+    const p = (now - t0) / APPEAR_MS - tOf[i] * 0.85;
+    return Math.max(0, Math.min(1, p * 10));
+  };
+
+  // ---- Rendering ----
+  function draw() {
+    ctx.clearRect(0, 0, W, Ht);
+
+    // year grid (horizontal lines + labels on the left)
+    ctx.font = '700 13px Orbitron, ui-monospace, "SF Mono", monospace';
+    ctx.letterSpacing = '2px';
+    ctx.textAlign = 'left';
+    for (let yr = Math.ceil(yMin / 10) * 10; yr <= yMax; yr += 10) {
+      const t = (yr - yMin) / ((yMax - yMin) || 1);
+      const [sy] = projY(dirY * (t - 0.5) * HH);
+      if (sy < 88 || sy > Ht - 20) continue;
+      ctx.fillStyle = 'rgba(205, 216, 235, 0.8)';
+      ctx.fillText(yr, 12, sy + 4);
+      ctx.strokeStyle = 'rgba(200, 212, 235, 0.10)';
+      ctx.beginPath(); ctx.moveTo(54, sy); ctx.lineTo(W - 12, sy); ctx.stroke();
+    }
+    ctx.letterSpacing = '0px';
+
+    const selActive = sel !== -1;
+    const introDone = (now - t0) >= APPEAR_MS;
+
+    // edges (batched strokes)
+    ctx.lineWidth = 1;
+    if (selActive) {
+      ctx.strokeStyle = 'rgba(140, 160, 200, 0.02)';
+      ctx.beginPath();
+      for (const [s, t] of G.edges) {
+        if (s === sel || t === sel) continue;
+        if (!visible(s) || !visible(t)) continue;
+        if (Math.min(appearOf(s), appearOf(t)) <= 0) continue;
+        ctx.moveTo(S[s * 3], S[s * 3 + 1]); ctx.lineTo(S[t * 3], S[t * 3 + 1]);
+      }
+      ctx.stroke();
+      if (visible(sel)) {
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(255, 180, 84, 0.8)';
+        ctx.beginPath();
+        for (const s of inc[sel]) { if (!visible(s) || appearOf(s) <= 0) continue; ctx.moveTo(S[s * 3], S[s * 3 + 1]); ctx.lineTo(S[sel * 3], S[sel * 3 + 1]); }
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(84, 216, 255, 0.75)';
+        ctx.beginPath();
+        for (const t of out[sel]) { if (!visible(t) || appearOf(t) <= 0) continue; ctx.moveTo(S[sel * 3], S[sel * 3 + 1]); ctx.lineTo(S[t * 3], S[t * 3 + 1]); }
+        ctx.stroke();
+      }
+    } else if (introDone) {
+      const K = EDGE_BUCKETS.length;
+      for (const b of EDGE_BUCKETS) b.length = 0;
+      for (const [s, t] of G.edges) {
+        if (!visible(s) || !visible(t)) continue;
+        const depth = Math.max(0, Math.min(1, ((S[s * 3 + 2] + S[t * 3 + 2]) / 2 - 0.72) * 3));
+        EDGE_BUCKETS[depth >= 1 ? K - 1 : (depth * K) | 0].push(s, t);
+      }
+      for (let b = 0; b < K; b++) {
+        const arr = EDGE_BUCKETS[b];
+        if (!arr.length) continue;
+        ctx.strokeStyle = `rgba(140, 160, 200, ${(0.02 + 0.1 * ((b + 0.5) / K)).toFixed(3)})`;
+        ctx.beginPath();
+        for (let j = 0; j < arr.length; j += 2) { ctx.moveTo(S[arr[j] * 3], S[arr[j] * 3 + 1]); ctx.lineTo(S[arr[j + 1] * 3], S[arr[j + 1] * 3 + 1]); }
+        ctx.stroke();
+      }
+    } else {
+      for (const [s, t] of G.edges) {
+        if (!visible(s) || !visible(t)) continue;
+        const ap = Math.min(appearOf(s), appearOf(t));
+        if (ap <= 0) continue;
+        const depth = Math.max(0, Math.min(1, ((S[s * 3 + 2] + S[t * 3 + 2]) / 2 - 0.72) * 3));
+        ctx.strokeStyle = `rgba(140, 160, 200, ${((0.02 + 0.1 * depth) * ap).toFixed(3)})`;
+        ctx.beginPath(); ctx.moveTo(S[s * 3], S[s * 3 + 1]); ctx.lineTo(S[t * 3], S[t * 3 + 1]); ctx.stroke();
+      }
+    }
+
+    // nodes (painter's order, back to front)
+    order.sort((a, b) => S[a * 3 + 2] - S[b * 3 + 2]);
+    for (const i of order) {
+      const inL = selActive && (i === sel || ancSet.has(i) || descSet.has(i));
+      const persp = S[i * 3 + 2];
+      const ap = appearOf(i);
+      if (!visible(i)) {
+        if (ap < 1) continue;
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = 'rgba(120, 132, 155, 0.14)';
+        ctx.beginPath(); ctx.arc(S[i * 3], S[i * 3 + 1], Math.max(0.8, 1.4 * persp), 0, TAU); ctx.fill();
+        continue;
+      }
+      ctx.globalAlpha = (selActive ? (inL ? Math.min(1, 0.5 + 0.5 * persp * persp + 0.3) : 0.16) : (0.5 + 0.5 * persp * persp)) * ap;
+      const r = radiusOf(i) * persp * zoomR() * (0.4 + 0.6 * ap) * (inL ? 1.35 : 1);
+      if (r < 0.4) continue;
+      const dr = r * 1.35;
+      ctx.drawImage(sprite(colorOf(G.nodes[i].g)), S[i * 3] - dr, S[i * 3 + 1] - dr, dr * 2, dr * 2);
+      if (inL && i !== sel) {
+        ctx.strokeStyle = ancSet.has(i) ? '#ffb454' : '#54d8ff';
+        ctx.lineWidth = 2.4;
+        ctx.beginPath(); ctx.arc(S[i * 3], S[i * 3 + 1], r + 2.6, 0, TAU); ctx.stroke();
+      }
+      if (i === sel || i === hover) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+        ctx.lineWidth = i === sel ? 2.6 : 1.5;
+        ctx.beginPath(); ctx.arc(S[i * 3], S[i * 3 + 1], r + 2.6, 0, TAU); ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    // labels (hubs, selected lineage, hover — greedy non-overlap placement)
+    ctx.textAlign = 'center';
+    ctx.letterSpacing = '0.3px';
+    const cands = [];
+    for (const i of order) {
+      if (!visible(i) || appearOf(i) < 1) continue;
+      const persp = S[i * 3 + 2];
+      const r = radiusOf(i) * persp * zoomR();
+      const show = i === hover || (selActive ? (i === sel || (dirSet.has(i) && r >= 2.4)) : r >= 6);
+      if (!show) continue;
+      cands.push([i === sel ? 1e9 : i === hover ? 1e8 : r, i, r, persp]);
+    }
+    cands.sort((a, b) => b[0] - a[0]);
+    const placed = [];
+    for (const [, i, r, persp] of cands) {
+      const inL = selActive && (i === sel || ancSet.has(i) || descSet.has(i));
+      const fs = i === sel ? 13 : Math.min(12, Math.round(8 + r * 0.35));
+      const lx = S[i * 3], ly = S[i * 3 + 1] - r - 5;
+      if (ly - fs < 38) continue;
+      ctx.font = `700 ${fs}px Orbitron, ui-monospace, "SF Mono", monospace`;
+      const w2 = ctx.measureText(G.nodes[i].t).width / 2 + 3;
+      let hit = false;
+      for (const [x0, x1, y0, y1] of placed) { if (lx + w2 > x0 && lx - w2 < x1 && ly > y0 && ly - fs < y1) { hit = true; break; } }
+      if (hit && i !== sel && i !== hover) continue;
+      placed.push([lx - w2, lx + w2, ly - fs, ly + 2]);
+      ctx.fillStyle = `rgba(233, 240, 252, ${selActive && !inL && i !== hover ? 0.15 : 0.5 + 0.5 * persp})`;
+      ctx.fillText(G.nodes[i].t, lx, ly);
+    }
+    ctx.letterSpacing = '0px';
+  }
+
+  // ---- Main loop ----
+  let last = performance.now();
+  function frame(t) {
+    now = t;
+    const dt = Math.min(t - last, 64); last = t;
+    if (spinOn && sel === -1 && hover === -1) tYaw += dt * 0.000238;
+    // while idle, slowly descend the timeline one way (loop back to the oldest at the end)
+    if (driftOn && sel === -1 && hover === -1 && !dragging) {
+      const bound = Math.max(1, HH * fitScale() * zoom * 0.55);
+      driftY -= dt * 0.021;
+      if (driftY < -bound) driftY += 2 * bound;
+    }
+    yaw += (tYaw - yaw) * 0.11;
+    pitch += (tPitch - pitch) * 0.11;
+    zoom += (tZoom - zoom) * 0.18;
+    panX += (tPanX - panX) * 0.12;
+    panY += (tPanY - panY) * 0.12;
+    project();
+    draw();
+    requestAnimationFrame(frame);
+  }
+  if (document.fonts && document.fonts.load) document.fonts.load('700 15px Orbitron');
+  requestAnimationFrame(frame);
+
+  // ---- Hit testing ----
+  const HIT_PAD = 8, MIN_HIT = 12;   // extra pick margin and minimum touch-target radius (px)
+  function pick(mx, my) {
+    let best = -1, bestD = Infinity;
+    for (let i = 0; i < N; i++) {
+      if (!visible(i)) continue;
+      const r = Math.max(radiusOf(i) * S[i * 3 + 2] * zoomR() + HIT_PAD, MIN_HIT);
+      const dx = S[i * 3] - mx, dy = S[i * 3 + 1] - my, d = dx * dx + dy * dy;
+      if (d < r * r && d < bestD) { bestD = d; best = i; }
+    }
+    return best;
+  }
+
+  // ---- Detail card ----
+  const card = document.getElementById('card');
+  const cardTitle = document.getElementById('card-title');
+  const cardMeta = document.getElementById('card-meta');
+  const cardBody = document.getElementById('card-body');
+  const cardWiki = document.getElementById('card-wiki');
+  const WIKI = window.PLGRAPH_WIKI || 'https://en.wikipedia.org/wiki/';
+
+  function langRow(i, onPick) {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'lang-row';
+    row.textContent = G.nodes[i].t;
+    const yr = document.createElement('span');
+    yr.textContent = G.nodes[i].a ?? 'Year unknown';
+    row.appendChild(yr);
+    row.addEventListener('click', () => onPick(i));
+    return row;
+  }
+  function fillCard(i) {
+    const n = G.nodes[i];
+    cardTitle.textContent = n.t;
+    cardMeta.textContent = '';
+    const dot = document.createElement('i'); dot.style.background = colorOf(n.g);
+    const para = document.createElement('span'); para.appendChild(dot);
+    para.appendChild(document.createTextNode(n.g >= 0 ? G.buckets[n.g] : 'Unknown paradigm'));
+    const yr = document.createElement('span'); yr.textContent = n.a !== null ? `${n.a}` : 'Year unknown';
+    cardMeta.append(yr, para);
+    if (n.d) {
+      const names = n.d.split(', ');
+      const shown = names.length > 3 ? `${names.slice(0, 3).join(', ')} +${names.length - 3} more` : n.d;
+      const ds = document.createElement('span'); ds.id = 'card-designer'; ds.textContent = `By ${shown}`;
+      cardMeta.appendChild(ds);
+    }
+    cardWiki.href = WIKI + encodeURIComponent(n.w.replace(/ /g, '_'));
+    cardBody.textContent = '';
+    const byYear = (a, b) => (G.nodes[a].a ?? 9999) - (G.nodes[b].a ?? 9999);
+    const secs = [
+      ['Influenced by (' + inc[i].length + ')', 'up', [...inc[i]].sort(byYear)],
+      ['Influenced (' + out[i].length + ')', 'down', [...out[i]].sort(byYear)],
+    ];
+    for (const [label, cls, list] of secs) {
+      const h = document.createElement('h3'); h.className = cls; h.textContent = label;
+      cardBody.appendChild(h);
+      if (!list.length) { const none = document.createElement('div'); none.id = 'card-none'; none.textContent = 'None'; cardBody.appendChild(none); }
+      for (const j of list) cardBody.appendChild(langRow(j, (k) => select(k)));
+    }
+    cardBody.scrollTop = 0;
+  }
+
+  function select(i) {
+    if (sel === -1 && focusOn) savedCam = { yaw, pitch, zoom, panX, panY };
+    if (!activeBuckets.has(G.nodes[i].g)) { activeBuckets.add(G.nodes[i].g); syncChips(); }   // a filtered-out node must become visible when selected
+    sel = i;
+    ancSet = new Set(inc[i]); descSet = new Set(out[i]); dirSet = new Set([...inc[i], ...out[i]]);
+    fillCard(i);
+    card.classList.add('open');
+    if (focusOn) focusNode(i);
+    try { history.replaceState(null, '', '#lang=' + encodeURIComponent(G.nodes[i].w)); } catch {}
+  }
+  function deselect() {
+    sel = -1; ancSet = descSet = dirSet = null;
+    card.classList.remove('open');
+    if (savedCam) {   // restore the pre-selection view (yaw via the nearest equivalent angle)
+      let ry = savedCam.yaw;
+      while (ry - yaw > Math.PI) ry -= TAU;
+      while (ry - yaw < -Math.PI) ry += TAU;
+      tYaw = ry; tPitch = savedCam.pitch; tZoom = savedCam.zoom;
+      tPanX = savedCam.panX; tPanY = savedCam.panY;
+      savedCam = null;
+    }
+    try { history.replaceState(null, '', location.pathname + location.search); } catch {}
+  }
+  // Bring the selected node to the near side (turn yaw toward its azimuth) and pan it into view
+  function focusNode(i) {
+    const mx = M[i * 3], mz = M[i * 3 + 2];
+    let target = Math.atan2(-mx, -mz);   // nearest-to-camera azimuth (minimizes rotated depth)
+    while (target - tYaw > Math.PI) target -= TAU;
+    while (target - tYaw < -Math.PI) target += TAU;
+    tYaw = target;
+    tZoom = Math.max(tZoom, 1.4);
+    const goalY = matchMedia('(max-width: 640px)').matches ? Ht * 0.3 : Ht * 0.5;
+    const [sy] = projY(M[i * 3 + 1]);
+    tPanX = 0;
+    tPanY += goalY - sy;
+  }
+  function clampPan() {
+    const m = 0.5 * HH * fitScale() * tZoom + 0.25 * Math.max(W, Ht);
+    tPanX = Math.max(-m, Math.min(m, tPanX));
+    tPanY = Math.max(-m, Math.min(m, tPanY));
+  }
+
+  document.getElementById('btn-close').addEventListener('click', deselect);
+  addEventListener('keydown', (e) => { if (e.key === 'Escape') deselect(); });
+
+  // ---- Pointer interaction ----
+  const tooltip = document.getElementById('tooltip');
+  let dragging = false, moved = 0, px = 0, py = 0, pinched = false;
+  const pointers = new Map();
+  let pinchDist = 0, pinchX = 0, pinchY = 0;
+
+  cv.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;   // right / middle click: leave to the browser
+    cv.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, [e.clientX, e.clientY]);
+    if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      pinchDist = Math.hypot(a[0] - b[0], a[1] - b[1]); pinchX = (a[0] + b[0]) / 2; pinchY = (a[1] + b[1]) / 2;
+      pinched = true;   // suppress the tap check until every finger lifts
+    }
+    dragging = true; moved = 0; px = e.clientX; py = e.clientY;
+    cv.style.cursor = 'grabbing';
+  });
+  cv.addEventListener('pointermove', (e) => {
+    if (pointers.has(e.pointerId)) pointers.set(e.pointerId, [e.clientX, e.clientY]);
+    if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+      const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+      if (pinchDist > 0) {
+        const z = Math.max(0.6, Math.min(3.5, tZoom * (d / pinchDist)));
+        const k = z / tZoom;
+        tPanX += (mx - W / 2 - tPanX) * (1 - k) + (mx - pinchX);
+        tPanY += (my - Ht / 2 - tPanY) * (1 - k) + (my - pinchY);
+        tZoom = z; clampPan();
+      }
+      pinchDist = d; pinchX = mx; pinchY = my;
+      return;
+    }
+    if (dragging) {
+      const dx = e.clientX - px, dy = e.clientY - py;
+      moved += Math.abs(dx) + Math.abs(dy);
+      px = e.clientX; py = e.clientY;
+      tYaw += dx * 0.005;
+      tPitch = Math.max(-1.2, Math.min(1.35, tPitch + dy * 0.004));
+      tooltip.style.display = 'none';
+    } else {
+      hover = pick(e.clientX, e.clientY);
+      if (hover !== -1) {
+        const n = G.nodes[hover];
+        tooltip.textContent = '';
+        tooltip.appendChild(document.createTextNode(n.t));
+        const sp = document.createElement('span'); sp.textContent = n.a ?? ''; tooltip.appendChild(sp);
+        if (n.d) { const ds = document.createElement('span'); ds.textContent = n.d.split(', ')[0]; tooltip.appendChild(ds); }
+        tooltip.style.display = 'block';
+        tooltip.style.left = Math.min(e.clientX + 14, W - 230) + 'px';
+        tooltip.style.top = (e.clientY + 14) + 'px';
+        cv.style.cursor = 'pointer';
+      } else { tooltip.style.display = 'none'; cv.style.cursor = 'grab'; }
+    }
+  });
+  cv.addEventListener('pointerup', (e) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchDist = 0;
+    if (pointers.size === 1) { const [rx, ry] = pointers.values().next().value; px = rx; py = ry; }   // adopt the remaining finger so the drag doesn't jump
+    if (dragging && moved < 6 && !pinched) { const i = pick(e.clientX, e.clientY); if (i !== -1) select(i); else deselect(); }
+    if (pointers.size === 0) pinched = false;
+    dragging = pointers.size > 0;
+    cv.style.cursor = dragging ? 'grabbing' : (pick(e.clientX, e.clientY) !== -1 ? 'pointer' : 'grab');
+  });
+  cv.addEventListener('pointercancel', (e) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchDist = 0;
+    if (pointers.size === 1) { const [rx, ry] = pointers.values().next().value; px = rx; py = ry; }
+    if (pointers.size === 0) pinched = false;
+    dragging = pointers.size > 0;
+    cv.style.cursor = dragging ? 'grabbing' : 'grab';
+  });
+  cv.addEventListener('pointerleave', () => { hover = -1; tooltip.style.display = 'none'; });
+
+  function isMouseWheel(e) {
+    if (e.deltaMode !== 0) return true;
+    if (e.deltaX !== 0) return false;
+    return Math.abs(e.deltaY) >= 40 && Number.isInteger(e.deltaY);
+  }
+  addEventListener('wheel', (e) => {
+    const overPanel = e.target.closest && e.target.closest('#card, #help-overlay, #search-results');
+    if (overPanel) { if (e.ctrlKey) e.preventDefault(); return; }
+    e.preventDefault();
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? Ht : 1;
+    if (e.ctrlKey || isMouseWheel(e)) {
+      const dy = Math.max(-320, Math.min(320, e.deltaY * unit));
+      const z = Math.max(0.6, Math.min(3.5, tZoom * Math.exp(-dy * 0.004)));
+      const k = z / tZoom;
+      tPanX += (e.clientX - W / 2 - tPanX) * (1 - k);
+      tPanY += (e.clientY - Ht / 2 - tPanY) * (1 - k);
+      tZoom = z;
+    } else if (e.shiftKey && e.deltaX === 0) { tPanX -= e.deltaY * unit; }
+    else { tPanX -= e.deltaX * unit; tPanY -= e.deltaY * unit; }
+    clampPan();
+  }, { passive: false });
+
+  // ---- Legend filter ----
+  const legend = document.getElementById('legend');
+  const bucketCount = new Map();
+  for (const n of G.nodes) bucketCount.set(n.g, (bucketCount.get(n.g) || 0) + 1);
+  const chipDefs = G.buckets.map((name, g) => [g, name]).concat([[-1, 'Unknown']])
+    .filter(([g]) => (bucketCount.get(g) || 0) > 0);   // an empty bucket would isolate into a blank screen
+  const allBuckets = chipDefs.map(([g]) => g);
+  const chips = new Map();
+  const syncChips = () => { for (const [g, chip] of chips) chip.setAttribute('aria-pressed', String(activeBuckets.has(g))); };
+  for (const [g, name] of chipDefs) {
+    const chip = document.createElement('button');
+    chip.className = 'chip'; chip.setAttribute('aria-pressed', 'true');
+    chip.title = 'Click to isolate / Shift·⌘-click to toggle individually';
+    const dot = document.createElement('i'); dot.style.background = colorOf(g);
+    chip.appendChild(dot); chip.appendChild(document.createTextNode(name));
+    chip.addEventListener('click', (e) => {
+      if (e.shiftKey || e.metaKey || e.ctrlKey) {
+        if (activeBuckets.has(g)) { if (activeBuckets.size > 1) activeBuckets.delete(g); } else activeBuckets.add(g);
+      } else {
+        const soloed = activeBuckets.size === 1 && activeBuckets.has(g);
+        activeBuckets.clear();
+        if (soloed) for (const b of allBuckets) activeBuckets.add(b); else activeBuckets.add(g);
+      }
+      syncChips();
+    });
+    chips.set(g, chip); legend.appendChild(chip);
+  }
+
+  // ---- Search ----
+  const search = document.getElementById('search');
+  const results = document.getElementById('search-results');
+  let activeIdx = -1;
+  const closeResults = () => {
+    results.style.display = 'none'; activeIdx = -1;
+    search.setAttribute('aria-expanded', 'false'); search.removeAttribute('aria-activedescendant');
+  };
+  const setActiveResult = (idx) => {
+    const rows = results.children;
+    if (!rows.length) return;
+    activeIdx = ((idx % rows.length) + rows.length) % rows.length;
+    for (let k = 0; k < rows.length; k++) rows[k].classList.toggle('active', k === activeIdx);
+    search.setAttribute('aria-activedescendant', rows[activeIdx].id);
+  };
+  function renderResults() {
+    const q = search.value.trim().toLowerCase();
+    results.textContent = '';
+    activeIdx = -1; search.removeAttribute('aria-activedescendant');
+    if (!q) { closeResults(); return; }
+    const all = [];
+    for (let i = 0; i < N; i++) { const pos = G.nodes[i].t.toLowerCase().indexOf(q); if (pos !== -1) all.push([i, pos === 0 ? 0 : 1]); }
+    all.sort((a, b) => a[1] - b[1] || G.nodes[b[0]].c - G.nodes[a[0]].c);
+    const hits = all.slice(0, 8).map((h) => h[0]);
+    hits.forEach((i, k) => {
+      const row = document.createElement('div'); row.setAttribute('role', 'option'); row.id = 'sr-opt-' + k; row.textContent = G.nodes[i].t;
+      const sp = document.createElement('span'); sp.textContent = G.nodes[i].a ?? ''; row.appendChild(sp);
+      row.addEventListener('click', () => { select(i); closeResults(); search.value = ''; });
+      results.appendChild(row);
+    });
+    if (hits.length) { results.style.display = 'block'; search.setAttribute('aria-expanded', 'true'); } else closeResults();
+  }
+  search.addEventListener('input', renderResults);
+  search.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActiveResult(activeIdx + 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveResult((activeIdx === -1 ? 0 : activeIdx) - 1); }
+    else if (e.key === 'Enter') { const row = results.children[activeIdx] || results.firstChild; if (row) row.click(); }
+    else if (e.key === 'Escape') { e.stopPropagation(); closeResults(); search.blur(); }
+  });
+  document.addEventListener('click', (e) => { if (!document.getElementById('search-wrap').contains(e.target)) closeResults(); });
+
+  // ---- Help ----
+  const helpOverlay = document.getElementById('help-overlay');
+  const btnHelp = document.getElementById('btn-help');
+  const helpClose = document.getElementById('help-close');
+  const HELP_KEY = 'plgraph-help-seen';
+  let replayIntroOnClose = false;   // true only for the first-visit auto-open
+  const openHelp = () => { helpOverlay.hidden = false; helpClose.focus(); };
+  const closeHelp = () => {
+    helpOverlay.hidden = true;
+    try { localStorage.setItem(HELP_KEY, '1'); } catch {}
+    // replay the appear intro the visitor could not see behind the modal (no-op when REDUCED: APPEAR_MS === 0)
+    if (replayIntroOnClose && APPEAR_MS) t0 = performance.now();
+    replayIntroOnClose = false;
+    btnHelp.focus();
+  };
+  btnHelp.addEventListener('click', openHelp);
+  helpClose.addEventListener('click', closeHelp);
+  helpOverlay.addEventListener('click', (e) => { if (e.target === helpOverlay) closeHelp(); });
+  helpOverlay.addEventListener('keydown', (e) => { if (e.key === 'Tab') { e.preventDefault(); helpClose.focus(); } });   // single focusable control — keep focus inside the dialog
+  addEventListener('keydown', (e) => { if (e.key === 'Escape' && !helpOverlay.hidden) { e.stopImmediatePropagation(); closeHelp(); } }, true);
+  let helpSeen = false; try { helpSeen = localStorage.getItem(HELP_KEY) === '1'; } catch {}
+  // #lang= share links land straight on the shared node; help stays reachable via the "?" button
+  if (!helpSeen && !/^#lang=./.test(location.hash)) { replayIntroOnClose = true; openHelp(); }
+
+  // ---- Time-axis flip (oldest up ⇄ newest up) ----
+  const btnFlip = document.getElementById('btn-flip');
+  btnFlip.addEventListener('click', () => {
+    dirY = -dirY;
+    for (let i = 0; i < N; i++) M[i * 3 + 1] = dirY * (tOf[i] - 0.5) * HH;
+    btnFlip.classList.toggle('flipped', dirY < 0);
+    btnFlip.setAttribute('aria-pressed', String(dirY < 0));
+    if (focusOn && sel !== -1) focusNode(sel);
+  });
+
+  // ---- Rotation / drift / centering toggles ----
+  const btnRotate = document.getElementById('btn-rotate');
+  const btnDrift = document.getElementById('btn-drift');
+  const setToggle = (btn, on) => { btn.classList.toggle('off', !on); btn.setAttribute('aria-pressed', String(on)); };
+  const btnFocus = document.getElementById('btn-focus');
+  setToggle(btnRotate, spinOn); setToggle(btnDrift, driftOn); setToggle(btnFocus, focusOn);
+  btnRotate.addEventListener('click', () => { spinOn = !spinOn; setToggle(btnRotate, spinOn); });
+  btnDrift.addEventListener('click', () => { driftOn = !driftOn; setToggle(btnDrift, driftOn); });
+  btnFocus.addEventListener('click', () => { focusOn = !focusOn; setToggle(btnFocus, focusOn); });
+
+  // ---- URL hash restore ----
+  const hm = location.hash.match(/^#lang=(.+)$/);
+  if (hm) {
+    let w = null;
+    try { w = decodeURIComponent(hm[1]); } catch {}   // tolerate malformed %-encoding in shared URLs
+    const i = w === null ? -1 : G.nodes.findIndex((n) => n.w === w);
+    if (i !== -1) select(i);
+  }
+})();
+</script>
+</body>
+</html>
