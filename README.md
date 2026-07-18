@@ -7,7 +7,7 @@ Click a language to trace its lineage (influencers in amber, descendants in cyan
 the view slowly drifts down the timeline and loops. Selections are shareable — picking a
 language puts a `#lang=` link in the URL bar.
 
-**Live:** <https://takahira.github.io/pl-graph/>
+**Live:** <https://taka-hira.dev/pl-graph/>
 
 ![Time helix of programming language influence — languages as glowing colored spheres spiraling up a dark 3D chart, with year labels on the left](assets/screenshot.png)
 
