@@ -776,6 +776,8 @@
   });
   cv.addEventListener('pointerleave', () => { hover = -1; tooltip.style.display = 'none'; });
 
+  // Known limitation: "integer deltaY >= 40" is a heuristic — some Windows precision
+  // touchpads report integer deltas, so two-finger scrolling there may zoom instead of pan.
   function isMouseWheel(e) {
     if (e.deltaMode !== 0) return true;
     if (e.deltaX !== 0) return false;
