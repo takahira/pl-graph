@@ -239,10 +239,49 @@
     #legend { gap: 4px; max-width: none; }
     .chip { padding: 5px 10px; font-size: 0.9rem; }
   }
+
+  /* Visible only to assistive tech. NOT display:none -- that would hide it from
+     screen readers too, which is the entire point of the element. */
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+    overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
+  /* The canvas is keyboard-operable now, so it needs a visible focus ring.
+     :focus-visible only, so a mouse click does not draw one. */
+  #cv:focus-visible { outline: 2px solid #7fd7ff; outline-offset: -4px; }
+
+  /* The browseable list: the non-visual, non-pointer route to every node.
+     Collapsed by default so it does not compete with the graph, but it is real
+     DOM -- reachable by Tab, by a screen reader's landmark/heading list, and by
+     in-page find. */
+  #all-langs {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
+    background: rgba(8, 12, 20, 0.92); border-top: 1px solid rgba(127, 215, 255, 0.25);
+    max-height: 45vh; overflow: auto; font-size: 0.85rem;
+  }
+  #all-langs h2 { margin: 0; font-size: inherit; font-weight: inherit; }
+  #all-langs-toggle {
+    width: 100%; text-align: left; padding: 8px 14px; background: none; border: 0;
+    color: #cfe6f5; cursor: pointer; font: inherit; letter-spacing: 0.04em;
+  }
+  #all-langs-toggle:hover, #all-langs-toggle:focus-visible { color: #fff; }
+  #all-langs-list { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 12px 12px; }
+  #all-langs-list button {
+    background: rgba(127, 215, 255, 0.08); border: 1px solid rgba(127, 215, 255, 0.22);
+    color: #cfe6f5; border-radius: 4px; padding: 3px 8px; cursor: pointer; font: inherit;
+  }
+  #all-langs-list button:hover, #all-langs-list button:focus-visible {
+    background: rgba(127, 215, 255, 0.2); color: #fff;
+  }
+  @media (prefers-reduced-motion: reduce) { #all-langs { transition: none; } }
 </style>
 </head>
 <body>
-<canvas id="cv" role="img" aria-label="Interactive 3D time helix of programming-language influence">Your browser does not support the canvas element.</canvas>
+<canvas id="cv" tabindex="0" role="application"
+        aria-label="Time helix of programming-language influence. Focus this canvas and use the arrow keys to rotate and tilt, Shift with the arrow keys to pan, plus and minus to zoom, Home to reset. The full list of languages is below the graph."
+        aria-describedby="cv-help">Your browser does not support the canvas element. Every language in this
+  graph is also listed as a button under &ldquo;All languages&rdquo; below.</canvas>
+<p id="cv-help" class="sr-only">The graph is decorative for assistive technology; the same data is available as a list of language buttons under &ldquo;All languages&rdquo;, each opening its year, paradigm, designer and influence relationships.</p>
 
 <header>
   <h1>Programming Language Influence Graph</h1>
@@ -291,10 +330,22 @@
       <li><span class="k">Legend chips (bottom)</span><span class="d">Filter by paradigm (⌘/Shift to toggle individually)</span></li>
       <li><span class="k">Controls (above legend)</span><span class="d">Flip time axis · auto-rotate · time drift · center-on-click</span></li>
       <li><span class="k">Esc</span><span class="d">Close selection &amp; restore the previous view</span></li>
+      <li><span class="k">Tab to the graph, then ← → ↑ ↓</span><span class="d">Rotate &amp; tilt without a mouse (Shift + arrows to pan)</span></li>
+      <li><span class="k">+ / − / Home</span><span class="d">Zoom in · zoom out · reset the view</span></li>
+      <li><span class="k">&ldquo;All languages&rdquo; (bottom)</span><span class="d">Every language as a keyboard-reachable list, oldest first</span></li>
     </ul>
     <p id="help-foot">Height = year · color = paradigm · lines = influence. When left idle, the view slowly drifts down the timeline and loops back to the start.<br>Data: Wikipedia (CC BY-SA 4.0)</p>
   </div>
 </div>
+
+<section id="all-langs" aria-labelledby="all-langs-title">
+  <h2 id="all-langs-title">
+    <button id="all-langs-toggle" aria-expanded="false" aria-controls="all-langs-list">
+      All languages <span id="all-langs-count"></span>
+    </button>
+  </h2>
+  <div id="all-langs-list" role="list" hidden></div>
+</section>
 
 <script src="data.js"></script>
 <script>
@@ -372,12 +423,30 @@
   const cv = document.getElementById('cv');
   const ctx = cv.getContext('2d');
   let W = 0, Ht = 0, dpr = 1;
+  var camReady = false;   // see resize(): set once the camera state exists
   function resize() {
     dpr = Math.min(devicePixelRatio || 1, 2);
     W = innerWidth; Ht = innerHeight;
     cv.width = W * dpr; cv.height = Ht * dpr;
     cv.style.width = W + 'px'; cv.style.height = Ht + 'px';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // The pan limit is derived from W/Ht, so shrinking the window (a wide desktop
+    // narrowed to a phone width, or a device rotation) can leave a previously
+    // legal pan outside the new bounds -- the helix sits past the edge with no
+    // visible cue and no way back. Re-clamp BOTH the target and the current
+    // value: clamping only the target leaves the eased `panX/panY` drifting to a
+    // stale position for the length of the animation.
+    // `var` (hoisted, initialised to undefined) rather than a `typeof` guard:
+    // resize() runs once at setup BEFORE the camera `let`s exist, and `typeof`
+    // on a let in its temporal dead zone throws rather than returning
+    // "undefined". clampPan itself is hoisted, so it would be reached and blow
+    // up on tZoom.
+    if (camReady) {
+      const m = panLimit();
+      clampPan();
+      panX = Math.max(-m, Math.min(m, panX));
+      panY = Math.max(-m, Math.min(m, panY));
+    }
   }
   addEventListener('resize', resize); resize();
 
@@ -690,16 +759,90 @@
     const goalY = matchMedia('(max-width: 640px)').matches ? Ht * 0.3 : Ht * 0.5;
     const [sy] = projY(M[i * 3 + 1]);
     tPanX = 0;
-    tPanY += goalY - sy;
+    // `projY` measures against the CURRENT panY, so the correction it yields is
+    // relative to where the camera is now -- adding it to the pending `tPanY`
+    // double-counts a move still in flight. Clicking a second node before the
+    // first settled therefore landed it off-centre, and the error accumulated
+    // over rapid navigation. Derive the target from current state instead.
+    tPanY = panY + (goalY - sy);
+    clampPan();
   }
+  function panLimit() {
+    return 0.5 * HH * fitScale() * tZoom + 0.25 * Math.max(W, Ht);
+  }
+  camReady = true;
   function clampPan() {
-    const m = 0.5 * HH * fitScale() * tZoom + 0.25 * Math.max(W, Ht);
+    const m = panLimit();
     tPanX = Math.max(-m, Math.min(m, tPanX));
     tPanY = Math.max(-m, Math.min(m, tPanY));
   }
 
   document.getElementById('btn-close').addEventListener('click', deselect);
   addEventListener('keydown', (e) => { if (e.key === 'Escape') deselect(); });
+
+  // ---- Keyboard camera control (WCAG 2.2 SC 2.1.1) --------------------------
+  // Every camera motion previously existed ONLY as a pointer or wheel handler,
+  // so rotation, tilt, pan and zoom were unreachable without a mouse or a touch
+  // screen. These mirror the pointer gestures one-for-one on the focused canvas.
+  const KEY_ROT = 0.12, KEY_PAN = 60, KEY_ZOOM = 1.12;
+  cv.addEventListener('keydown', (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;   // leave browser shortcuts alone
+    let handled = true;
+    switch (e.key) {
+      case 'ArrowLeft':  e.shiftKey ? (tPanX += KEY_PAN) : (tYaw -= KEY_ROT); break;
+      case 'ArrowRight': e.shiftKey ? (tPanX -= KEY_PAN) : (tYaw += KEY_ROT); break;
+      case 'ArrowUp':    e.shiftKey ? (tPanY += KEY_PAN) : (tPitch = Math.max(-1.2, tPitch - KEY_ROT)); break;
+      case 'ArrowDown':  e.shiftKey ? (tPanY -= KEY_PAN) : (tPitch = Math.min(1.2, tPitch + KEY_ROT)); break;
+      case '+': case '=': tZoom = Math.min(3.5, tZoom * KEY_ZOOM); break;
+      case '-': case '_': tZoom = Math.max(0.5, tZoom / KEY_ZOOM); break;
+      case 'Home': tYaw = 0.6; tPitch = 0.2; tZoom = 1.25; tPanX = 0; tPanY = 0; break;
+      default: handled = false;
+    }
+    if (handled) { clampPan(); e.preventDefault(); }
+  });
+
+  // ---- Browseable language list --------------------------------------------
+  // Search could only reach a language the visitor already knew to type: an
+  // empty query listed nothing, so there was no way to DISCOVER what is in the
+  // graph without a pointer. A screen reader additionally got one generic canvas
+  // label in place of 349 languages. This list is the same data as real DOM.
+  const allWrap = document.getElementById('all-langs-list');
+  const allToggle = document.getElementById('all-langs-toggle');
+  document.getElementById('all-langs-count').textContent = '(' + G.nodes.length + ')';
+  let allBuilt = false;
+  function buildAllLangs() {
+    if (allBuilt) return;
+    allBuilt = true;
+    const frag = document.createDocumentFragment();
+    // Chronological, so the list carries the same ordering the helix encodes.
+    // A null year means "unknown"; those go last rather than pretending to a date.
+    const order = G.nodes.map((n, i) => i).sort((a, b) => {
+      const ya = G.nodes[a].a, yb = G.nodes[b].a;
+      if (ya === null && yb === null) return G.nodes[a].t.localeCompare(G.nodes[b].t);
+      if (ya === null) return 1;
+      if (yb === null) return -1;
+      return ya - yb || G.nodes[a].t.localeCompare(G.nodes[b].t);
+    });
+    for (const i of order) {
+      const n = G.nodes[i];
+      const item = document.createElement('div');
+      item.setAttribute('role', 'listitem');
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = n.t + (n.a === null ? '' : ' \u00b7 ' + n.a);
+      b.setAttribute('aria-label', n.t + (n.a === null ? ', year unknown' : ', ' + n.a));
+      b.addEventListener('click', () => { select(i); cv.focus(); });
+      item.appendChild(b);
+      frag.appendChild(item);
+    }
+    allWrap.appendChild(frag);
+  }
+  allToggle.addEventListener('click', () => {
+    const open = allToggle.getAttribute('aria-expanded') === 'true';
+    if (!open) buildAllLangs();
+    allToggle.setAttribute('aria-expanded', String(!open));
+    allWrap.hidden = open;
+  });
 
   // ---- Pointer interaction ----
   const tooltip = document.getElementById('tooltip');
