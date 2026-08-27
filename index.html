@@ -89,8 +89,16 @@
   #search-results div:hover, #search-results div.active { background: rgba(125, 165, 255, 0.15); }
   #search-results span { color: var(--text-dim); font-size: 0.72rem; margin-left: 6px; }
 
+  /* --dock-bottom is measured from the collapsed "All languages" bar at runtime
+     (see syncDockOffset). #all-langs is also z-index 6 and comes later in the
+     DOM, so it painted over the legend chips and swallowed clicks aimed at the
+     lower half of one. Raising the dock's z-index would only hide the overlap;
+     the chips need to sit clear of the bar instead. The fallback keeps the
+     layout sane before the first measurement. */
   #dock {
-    position: fixed; left: 14px; bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 6;
+    position: fixed; left: 14px;
+    bottom: calc(var(--dock-bottom, 52px) + 14px + env(safe-area-inset-bottom));
+    z-index: 6;
     display: flex; flex-direction: column; gap: 10px; align-items: flex-start;
   }
   #controls { display: flex; gap: 8px; }
@@ -235,7 +243,7 @@
     #search-wrap { top: 12px; right: 12px; width: 145px; }
     #search { padding: 6px 10px; font-size: 0.8rem; }
     #card { top: auto; bottom: 0; left: 0; right: 0; width: 100%; max-height: 46vh; border-radius: 14px 14px 0 0; padding-bottom: env(safe-area-inset-bottom); }
-    #dock { left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); }
+    #dock { left: 10px; right: 10px; bottom: calc(var(--dock-bottom, 52px) + 10px + env(safe-area-inset-bottom)); }
     #legend { gap: 4px; max-width: none; }
     .chip { padding: 5px 10px; font-size: 0.9rem; }
   }
@@ -266,6 +274,11 @@
   }
   #all-langs-toggle:hover, #all-langs-toggle:focus-visible { color: #fff; }
   #all-langs-list { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 12px 12px; }
+  /* An ID selector outranks the UA's `[hidden] { display: none }`, so the rule
+     above kept all 349 buttons on screen after the toggle set `hidden` -- the
+     panel could be opened but never closed, while aria-expanded reported the
+     opposite to assistive tech. Restate the hidden case at the same weight. */
+  #all-langs-list[hidden] { display: none; }
   #all-langs-list button {
     background: rgba(127, 215, 255, 0.08); border: 1px solid rgba(127, 215, 255, 0.22);
     color: #cfe6f5; border-radius: 4px; padding: 3px 8px; cursor: pointer; font: inherit;
@@ -837,11 +850,31 @@
     }
     allWrap.appendChild(frag);
   }
+  // Keep the legend chips clear of the fixed "All languages" bar. Measure the
+  // COLLAPSED bar (the toggle button), never the expanded panel: the panel is up
+  // to 45vh and pushing the dock that far would be worse than the overlap it
+  // fixes -- and an expanded panel is a deliberate action the reader can undo,
+  // unlike the bar, which is always there.
+  function syncDockOffset() {
+    const h = allToggle.getBoundingClientRect().height;
+    if (h > 0) document.documentElement.style.setProperty('--dock-bottom', h + 'px');
+  }
+  syncDockOffset();
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(syncDockOffset).observe(allToggle);
+  } else {
+    addEventListener('resize', syncDockOffset);
+  }
+
   allToggle.addEventListener('click', () => {
     const open = allToggle.getAttribute('aria-expanded') === 'true';
     if (!open) buildAllLangs();
     allToggle.setAttribute('aria-expanded', String(!open));
     allWrap.hidden = open;
+    // Collapsing returns focus-order and pointer targets to the bar; the offset
+    // is measured off the toggle so it does not change, but re-run it in case
+    // the button reflowed (a longer count label wrapping at a narrow width).
+    syncDockOffset();
   });
 
   // ---- Pointer interaction ----
@@ -927,7 +960,7 @@
     return Math.abs(e.deltaY) >= 40 && Number.isInteger(e.deltaY);
   }
   addEventListener('wheel', (e) => {
-    const overPanel = e.target.closest && e.target.closest('#card, #help-overlay, #search-results');
+    const overPanel = e.target.closest && e.target.closest('#card, #help-overlay, #search-results, #all-langs');
     if (overPanel) { if (e.ctrlKey) e.preventDefault(); return; }
     e.preventDefault();
     const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? Ht : 1;
