@@ -8,9 +8,11 @@ new Function('window', src)(sandbox);
 const G = sandbox.GRAPH;
 
 const fail = (msg) => { console.error('FAIL: ' + msg); process.exit(1); };
+const EXPECTED_NODE_COUNT = 349;
+const EXPECTED_EDGE_COUNT = 1056;
 if (!G || !Array.isArray(G.nodes) || !Array.isArray(G.edges) || !Array.isArray(G.buckets)) fail('GRAPH shape');
-if (G.nodes.length < 300) fail('unexpected node count: ' + G.nodes.length);
-if (G.edges.length < 900) fail('unexpected edge count: ' + G.edges.length);
+if (G.nodes.length !== EXPECTED_NODE_COUNT) fail('unexpected node count: ' + G.nodes.length + ', expected ' + EXPECTED_NODE_COUNT);
+if (G.edges.length !== EXPECTED_EDGE_COUNT) fail('unexpected edge count: ' + G.edges.length + ', expected ' + EXPECTED_EDGE_COUNT);
 if (!G.edges.every(([s, t]) => Number.isInteger(s) && Number.isInteger(t) && s >= 0 && s < G.nodes.length && t >= 0 && t < G.nodes.length)) fail('edge index out of range');
 if (!G.nodes.every((n) => typeof n.t === 'string' && typeof n.w === 'string')) fail('node missing t/w');
 

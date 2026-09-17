@@ -380,6 +380,11 @@
   const COLORS = ['#ff7d5e', '#5ec8ff', '#ffc94d', '#b98cff', '#4dffc3', '#ff5ea8', '#9ad06a'];
   const GRAY = '#8a93a6';
   const colorOf = (g) => (g >= 0 ? COLORS[g] : GRAY);
+  const bucketCount = new Map();
+  for (const n of G.nodes) bucketCount.set(n.g, (bucketCount.get(n.g) || 0) + 1);
+  const chipDefs = G.buckets.map((name, g) => [g, name]).concat([[-1, 'Unknown']])
+    .filter(([g]) => (bucketCount.get(g) || 0) > 0);   // an empty bucket would isolate into a blank screen
+  const allBuckets = chipDefs.map(([g]) => g);
 
   // ---- Glow sphere sprites (pre-rendered per color) ----
   const mix = (srcHex, other, t) => {
@@ -474,7 +479,7 @@
   let savedCam = null;  // camera before selection (restored on deselect)
   let sel = -1, hover = -1;
   let ancSet = null, descSet = null, dirSet = null;
-  const activeBuckets = new Set([-1, 0, 1, 2, 3, 4, 5, 6]);
+  const activeBuckets = new Set(allBuckets);
 
   const S = new Float32Array(N * 3);      // projected sx, sy, persp
   const order = Array.from({ length: N }, (_, i) => i);
@@ -978,11 +983,6 @@
 
   // ---- Legend filter ----
   const legend = document.getElementById('legend');
-  const bucketCount = new Map();
-  for (const n of G.nodes) bucketCount.set(n.g, (bucketCount.get(n.g) || 0) + 1);
-  const chipDefs = G.buckets.map((name, g) => [g, name]).concat([[-1, 'Unknown']])
-    .filter(([g]) => (bucketCount.get(g) || 0) > 0);   // an empty bucket would isolate into a blank screen
-  const allBuckets = chipDefs.map(([g]) => g);
   const chips = new Map();
   const syncChips = () => { for (const [g, chip] of chips) chip.setAttribute('aria-pressed', String(activeBuckets.has(g))); };
   for (const [g, name] of chipDefs) {
