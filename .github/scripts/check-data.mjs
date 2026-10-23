@@ -1,6 +1,13 @@
 // Sanity-check the prebuilt data.js artifact: shape, counts, edge indices, and
 // that no raw wikitext markup leaked into display strings.
+//
+// data.js is the source of truth for the node/edge counts. Instead of pinning exact
+// numbers here (which went stale on every data refresh), CI requires the counts quoted
+// in README.md and the index.html <meta> tags to equal data.js -- see count-claims.mjs,
+// which the publish step also uses to rewrite them -- plus a floor that catches a
+// truncated artifact.
 import { readFileSync } from 'node:fs';
+import { mismatches } from './count-claims.mjs';
 
 const src = readFileSync('data.js', 'utf8');
 const sandbox = {};
@@ -8,11 +15,19 @@ new Function('window', src)(sandbox);
 const G = sandbox.GRAPH;
 
 const fail = (msg) => { console.error('FAIL: ' + msg); process.exit(1); };
-const EXPECTED_NODE_COUNT = 349;
-const EXPECTED_EDGE_COUNT = 1056;
+// Floors well below the real data: a normal refresh passes, a gutted artifact fails.
+const MIN_NODE_COUNT = 300;
+const MIN_EDGE_COUNT = 900;
 if (!G || !Array.isArray(G.nodes) || !Array.isArray(G.edges) || !Array.isArray(G.buckets)) fail('GRAPH shape');
-if (G.nodes.length !== EXPECTED_NODE_COUNT) fail('unexpected node count: ' + G.nodes.length + ', expected ' + EXPECTED_NODE_COUNT);
-if (G.edges.length !== EXPECTED_EDGE_COUNT) fail('unexpected edge count: ' + G.edges.length + ', expected ' + EXPECTED_EDGE_COUNT);
+if (G.nodes.length < MIN_NODE_COUNT) fail('unexpected node count: ' + G.nodes.length + ', expected >= ' + MIN_NODE_COUNT);
+if (G.edges.length < MIN_EDGE_COUNT) fail('unexpected edge count: ' + G.edges.length + ', expected >= ' + MIN_EDGE_COUNT);
+let stale;
+try {
+  stale = mismatches('.', { nodes: G.nodes.length, edges: G.edges.length });
+} catch (err) {
+  fail('count claim not found: ' + err.message);
+}
+if (stale.length) fail('README/meta counts out of sync with data.js:\n  ' + stale.join('\n  '));
 if (!G.edges.every(([s, t]) => Number.isInteger(s) && Number.isInteger(t) && s >= 0 && s < G.nodes.length && t >= 0 && t < G.nodes.length)) fail('edge index out of range');
 if (!G.nodes.every((n) => typeof n.t === 'string' && typeof n.w === 'string')) fail('node missing t/w');
 

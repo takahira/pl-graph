@@ -7,12 +7,12 @@
 <link rel="icon" type="image/png" sizes="64x64" href="assets/favicon.png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 <title>Programming Language Influence Graph</title>
-<meta name="description" content="Interactive 3D time-helix visualization of how 349 programming languages influenced one another, built from English Wikipedia data.">
+<meta name="description" content="Interactive 3D time-helix visualization of how 350 programming languages influenced one another, built from English Wikipedia data.">
 <meta name="theme-color" content="#070b14">
 <meta name="color-scheme" content="dark">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Programming Language Influence Graph">
-<meta property="og:description" content="349 languages spiral up a rotating time helix — click any language to trace its lineage. Built from Wikipedia's influenced / influenced-by data.">
+<meta property="og:description" content="350 languages spiral up a rotating time helix — click any language to trace its lineage. Built from Wikipedia's influenced / influenced-by data.">
 <meta property="og:url" content="https://taka-hira.dev/pl-graph/">
 <meta property="og:image" content="https://taka-hira.dev/pl-graph/assets/screenshot.png">
 <meta property="og:image:width" content="1200">
@@ -1090,13 +1090,19 @@
   btnFocus.addEventListener('click', () => { focusOn = !focusOn; setToggle(btnFocus, focusOn); });
 
   // ---- URL hash restore ----
-  const hm = location.hash.match(/^#lang=(.+)$/);
-  if (hm) {
+  // On load, and again whenever the hash changes in the same tab (a share link pasted into
+  // the address bar or followed from another page). select()/deselect() update the URL with
+  // history.replaceState, which does not fire `hashchange`, so this cannot loop.
+  function restoreFromHash() {
+    const hm = location.hash.match(/^#lang=(.+)$/);
+    if (!hm) { if (sel !== -1) deselect(); return; }   // hash cleared (e.g. Back to the bare URL)
     let w = null;
     try { w = decodeURIComponent(hm[1]); } catch {}   // tolerate malformed %-encoding in shared URLs
     const i = w === null ? -1 : G.nodes.findIndex((n) => n.w === w);
-    if (i !== -1) select(i);
+    if (i !== -1 && i !== sel) select(i);
   }
+  restoreFromHash();
+  addEventListener('hashchange', restoreFromHash);
 })();
 </script>
 </body>

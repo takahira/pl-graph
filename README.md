@@ -13,7 +13,7 @@ language puts a `#lang=` link in the URL bar.
 
 ## About
 
-- 349 languages, 1,056 influence edges (English Wikipedia).
+- 350 languages, 1,058 influence edges (English Wikipedia).
 - Dependency-free and fully self-contained: vanilla JavaScript + Canvas 2D. No build step,
   no libraries, no external requests — fonts are bundled, so it also works offline.
 - The helix layout is computed once at load from each node's year; the per-frame loop only
